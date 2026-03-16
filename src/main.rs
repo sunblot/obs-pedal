@@ -60,8 +60,9 @@ fn main() {
     })
     .expect("Failed to set Ctrl+C handler");
 
-    // Connect to OBS
+    // Connect to OBS and sync initial state
     let mut obs_client = connect_obs(&config.obs, &running);
+    sync_status(&mut obs_client, &mut _status);
 
     println!("Ready. Tap a pedal to switch scenes. Ctrl+C to quit.");
 
@@ -128,6 +129,27 @@ fn main() {
     }
 
     println!("Goodbye.");
+}
+
+/// Query OBS for current scene and recording status, update waybar.
+fn sync_status(obs_client: &mut obs::ObsClient, status: &mut status::Status) {
+    match obs_client.get_current_scene() {
+        Ok(scene) if !scene.is_empty() => {
+            println!("OBS current scene: {}", scene);
+            status.set_scene(&scene);
+        }
+        Ok(_) => log::warn!("Could not determine current scene"),
+        Err(e) => log::warn!("Failed to query current scene: {}", e),
+    }
+    match obs_client.get_record_status() {
+        Ok(recording) => {
+            println!("OBS recording: {}", recording);
+            status.recording = recording;
+            // Force a write to update waybar
+            status.set_scene(&status.current_scene.clone());
+        }
+        Err(e) => log::warn!("Failed to query recording status: {}", e),
+    }
 }
 
 /// Execute a named action on OBS.

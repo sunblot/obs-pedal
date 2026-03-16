@@ -81,6 +81,68 @@ impl ObsClient {
         b64.encode(hasher.finalize())
     }
 
+    /// Query the current recording status from OBS.
+    /// Only safe to call right after connect, before the event loop starts.
+    pub fn get_record_status(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+        let request_id = uuid_simple();
+        let msg = json!({
+            "op": 6,
+            "d": {
+                "requestType": "GetRecordStatus",
+                "requestId": request_id,
+            }
+        });
+        self.ws.send(Message::Text(msg.to_string().into()))?;
+
+        // Read responses, skipping events (op=5) until we get our response (op=7)
+        loop {
+            let resp_msg = self.ws.read()?;
+            let resp: Value = serde_json::from_str(resp_msg.to_text()?)?;
+            let op = resp.get("op").and_then(|o| o.as_u64()).unwrap_or(0);
+            if op == 7 {
+                let active = resp
+                    .get("d")
+                    .and_then(|d| d.get("responseData"))
+                    .and_then(|r| r.get("outputActive"))
+                    .and_then(|a| a.as_bool())
+                    .unwrap_or(false);
+                log::info!("OBS recording status: {}", active);
+                return Ok(active);
+            }
+        }
+    }
+
+    /// Query the current scene name from OBS.
+    /// Only safe to call right after connect, before the event loop starts.
+    pub fn get_current_scene(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+        let request_id = uuid_simple();
+        let msg = json!({
+            "op": 6,
+            "d": {
+                "requestType": "GetCurrentProgramScene",
+                "requestId": request_id,
+            }
+        });
+        self.ws.send(Message::Text(msg.to_string().into()))?;
+
+        loop {
+            let resp_msg = self.ws.read()?;
+            let resp: Value = serde_json::from_str(resp_msg.to_text()?)?;
+            let op = resp.get("op").and_then(|o| o.as_u64()).unwrap_or(0);
+            if op == 7 {
+                let name = resp
+                    .get("d")
+                    .and_then(|d| d.get("responseData"))
+                    .and_then(|r| r.get("currentProgramSceneName"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                log::info!("OBS current scene: {}", name);
+                return Ok(name);
+            }
+        }
+    }
+
     /// Switch to the named scene (fire-and-forget).
     pub fn set_scene(&mut self, scene_name: &str) -> Result<(), Box<dyn std::error::Error>> {
         let request_id = uuid_simple();
