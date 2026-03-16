@@ -1,0 +1,20 @@
+[obs]
+host = "127.0.0.1"
+port = 4455
+password = "your-obs-websocket-password"
+
+# Pedal-to-scene mappings.
+# "cc" is the MIDI Control Change number sent by each pedal.
+# "scene" is the exact OBS scene name to switch to.
+
+[[pedal]]
+cc = 80
+scene = "Camera"
+
+[[pedal]]
+cc = 81
+scene = "Screen"
+
+[[pedal]]
+cc = 82
+scene = "Both"
