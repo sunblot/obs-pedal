@@ -98,6 +98,21 @@ impl ObsClient {
         log::info!("Sent SetCurrentProgramScene: {}", scene_name);
         Ok(())
     }
+
+    /// Toggle recording on/off (fire-and-forget).
+    pub fn toggle_record(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let request_id = uuid_simple();
+        let msg = json!({
+            "op": 6,
+            "d": {
+                "requestType": "ToggleRecord",
+                "requestId": request_id,
+            }
+        });
+        self.ws.send(Message::Text(msg.to_string().into()))?;
+        log::info!("Sent ToggleRecord");
+        Ok(())
+    }
 }
 
 /// Simple unique ID without pulling in the uuid crate.

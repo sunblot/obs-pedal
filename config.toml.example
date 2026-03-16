@@ -6,10 +6,15 @@ password = "your-obs-websocket-password"
 # Pedal-to-scene mappings.
 # "cc" is the MIDI Control Change number sent by each pedal.
 # "scene" is the exact OBS scene name to switch to.
+# Optional: "long_press" assigns an action to holding the pedal.
+#   Supported actions: "toggle_record"
+# Optional: "hold_ms" sets the hold threshold in milliseconds (default 500).
 
 [[pedal]]
 cc = 80
 scene = "Camera"
+long_press = "toggle_record"
+hold_ms = 500
 
 [[pedal]]
 cc = 81

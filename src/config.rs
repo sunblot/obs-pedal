@@ -20,6 +20,9 @@ pub struct ObsConfig {
 pub struct PedalMapping {
     pub cc: u8,
     pub scene: String,
+    pub long_press: Option<String>,
+    /// Hold duration in milliseconds to trigger long press (default 500)
+    pub hold_ms: Option<u64>,
 }
 
 impl Config {
@@ -32,5 +35,17 @@ impl Config {
     /// Build a HashMap from MIDI CC number to scene name for fast lookup.
     pub fn pedal_map(&self) -> HashMap<u8, String> {
         self.pedal.iter().map(|p| (p.cc, p.scene.clone())).collect()
+    }
+
+    /// Build a HashMap from MIDI CC number to (action, hold_ms) for long press.
+    pub fn long_press_map(&self) -> HashMap<u8, (String, u64)> {
+        self.pedal
+            .iter()
+            .filter_map(|p| {
+                p.long_press.as_ref().map(|action| {
+                    (p.cc, (action.clone(), p.hold_ms.unwrap_or(500)))
+                })
+            })
+            .collect()
     }
 }

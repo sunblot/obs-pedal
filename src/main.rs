@@ -1,10 +1,13 @@
 mod config;
 mod midi;
 mod obs;
+mod status;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 fn main() {
     env_logger::init();
@@ -24,7 +27,12 @@ fn main() {
     };
 
     let pedal_map = config.pedal_map();
-    println!("Loaded {} pedal mappings.", pedal_map.len());
+    let long_press_map = config.long_press_map();
+    let scene_names: Vec<String> = config.pedal.iter().map(|p| p.scene.clone()).collect();
+    println!("Loaded {} pedal mappings ({} with long press).", pedal_map.len(), long_press_map.len());
+
+    // Initialize status for waybar
+    let mut _status = status::Status::new(scene_names);
 
     // Find the MIDI device
     let midi_in = midir::MidiInput::new("obs-pedal-discovery").expect("Failed to create MIDI input");
@@ -57,18 +65,58 @@ fn main() {
 
     println!("Ready. Tap a pedal to switch scenes. Ctrl+C to quit.");
 
-    // Event loop — trigger on CC press (val>0), ignore release (val=0)
+    // Track press timestamps for long press detection
+    let mut press_times: HashMap<u8, Instant> = HashMap::new();
+
+    // Event loop
     while running.load(Ordering::SeqCst) {
         match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            // CC press (val > 0)
             Ok(midi::MidiEvent::ControlChange { controller, value, .. }) if value > 0 => {
-                if let Some(scene) = pedal_map.get(&controller) {
-                    println!("Pedal CC {} → switching to scene: {}", controller, scene);
-                    if let Err(e) = obs_client.set_scene(scene) {
-                        log::warn!("Failed to switch scene: {}. Reconnecting...", e);
-                        obs_client = connect_obs(&config.obs, &running);
+                press_times.insert(controller, Instant::now());
+
+                // If no long press configured for this CC, fire scene switch immediately
+                if !long_press_map.contains_key(&controller) {
+                    if let Some(scene) = pedal_map.get(&controller) {
+                        println!("Pedal CC {} → switching to scene: {}", controller, scene);
+                        if let Err(e) = obs_client.set_scene(scene) {
+                            log::warn!("Failed to switch scene: {}. Reconnecting...", e);
+                            obs_client = connect_obs(&config.obs, &running);
+                        }
+                        _status.set_scene(scene);
+                    } else {
+                        println!("CC {} not mapped to any scene (val={})", controller, value);
                     }
-                } else {
-                    println!("CC {} not mapped to any scene (val={})", controller, value);
+                }
+            }
+            // CC release (val = 0)
+            Ok(midi::MidiEvent::ControlChange { controller, value: 0, .. }) => {
+                if let Some(press_time) = press_times.remove(&controller) {
+                    let held_ms = press_time.elapsed().as_millis() as u64;
+
+                    if let Some((action, threshold_ms)) = long_press_map.get(&controller) {
+                        if held_ms >= *threshold_ms {
+                            // Long press — execute action
+                            println!("Pedal CC {} long press ({}ms) → {}", controller, held_ms, action);
+                            if let Err(e) = execute_action(&mut obs_client, action) {
+                                log::warn!("Failed to execute {}: {}. Reconnecting...", action, e);
+                                obs_client = connect_obs(&config.obs, &running);
+                            }
+                            if action == "toggle_record" {
+                                _status.toggle_recording();
+                            }
+                        } else {
+                            // Short press — switch scene
+                            if let Some(scene) = pedal_map.get(&controller) {
+                                println!("Pedal CC {} tap ({}ms) → switching to scene: {}", controller, held_ms, scene);
+                                if let Err(e) = obs_client.set_scene(scene) {
+                                    log::warn!("Failed to switch scene: {}. Reconnecting...", e);
+                                    obs_client = connect_obs(&config.obs, &running);
+                                }
+                                _status.set_scene(scene);
+                            }
+                        }
+                    }
                 }
             }
             Ok(event) => {
@@ -80,6 +128,17 @@ fn main() {
     }
 
     println!("Goodbye.");
+}
+
+/// Execute a named action on OBS.
+fn execute_action(obs_client: &mut obs::ObsClient, action: &str) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        "toggle_record" => obs_client.toggle_record(),
+        _ => {
+            log::warn!("Unknown action: {}", action);
+            Ok(())
+        }
+    }
 }
 
 /// Connect to OBS with exponential backoff. Blocks until connected or shutdown.
