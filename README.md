@@ -3,6 +3,7 @@
 A lightweight Rust daemon that maps USB-MIDI foot pedal presses to OBS scene switches via WebSocket.
 
 Built for the **Roland FS-1-WL** (3 pedals), but should work with any MIDI controller that sends Control Change messages.
+...
 
 ## How it works
 
